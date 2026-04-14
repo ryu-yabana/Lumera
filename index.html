@@ -219,3 +219,201 @@ button:disabled {
   </div>
 
   <div class="slider-group">
+    <label>Bloom <span>Harmony</span></label>
+    <input type="range" id="bloom" min="0" max="1" step="0.01" value="0">
+  </div>
+
+</div>
+
+<div class="controls">
+  <button id="play-btn">Listen</button>
+  <button id="restart-btn">Again</button>
+  <button id="serendipity-btn">Serendipity</button>
+  <button id="capture-btn">Capture</button>
+</div>
+
+<div id="status" class="status">Waiting for audio...</div>
+
+<script>
+let player;
+let harmony1, harmony2;
+let driftLFO;
+
+// AUDIO CHAIN
+const limiter = new Tone.Limiter(-1).toDestination();
+const widener = new Tone.StereoWidener(0.7).connect(limiter);
+const highpass = new Tone.Filter(100, "highpass").connect(widener);
+const lowpass = new Tone.Filter(1500, "lowpass").connect(highpass);
+const reverb = new Tone.Reverb({ decay: 8, wet: 0.5 }).connect(lowpass);
+
+// UI ELEMENTS
+const dropZone = document.getElementById('drop-zone');
+const fileInput = document.getElementById('file-input');
+const playBtn = document.getElementById('play-btn');
+const restartBtn = document.getElementById('restart-btn');
+const captureBtn = document.getElementById('capture-btn');
+const serendipityBtn = document.getElementById('serendipity-btn');
+const statusText = document.getElementById('status');
+
+// LFO for organic movement (Drift)
+driftLFO = new Tone.LFO({
+  frequency: 0.1,
+  min: -10,
+  max: 10
+}).start();
+
+// LOAD FILE
+dropZone.onclick = () => fileInput.click();
+
+fileInput.onchange = e => {
+  if (e.target.files.length > 0) handleFile(e.target.files[0]);
+};
+
+async function handleFile(file) {
+  statusText.innerText = "Deciphering sound...";
+
+  const reader = new FileReader();
+  reader.onload = async function(e) {
+    const buffer = await Tone.context.decodeAudioData(e.target.result);
+
+    if (player) player.dispose();
+
+    player = new Tone.GrainPlayer({
+      url: buffer,
+      loop: true,
+      grainSize: 0.2,
+      overlap: 0.2
+    });
+
+    harmony1 = new Tone.PitchShift({ pitch: 7, wet: 0 });
+    harmony2 = new Tone.PitchShift({ pitch: 12, wet: 0 });
+
+    player.connect(reverb);
+    player.connect(harmony1);
+    player.connect(harmony2);
+    harmony1.connect(reverb);
+    harmony2.connect(reverb);
+    
+    driftLFO.connect(player.detune);
+
+    statusText.innerText = "Ready: " + file.name;
+    await Tone.start();
+    player.start();
+    playBtn.innerText = "Hold";
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+// PLAY / STOP
+playBtn.onclick = async () => {
+  if (!player) return;
+  if (player.state === "started") {
+    player.stop();
+    playBtn.innerText = "Listen";
+  } else {
+    await Tone.start();
+    player.start();
+    playBtn.innerText = "Hold";
+  }
+};
+
+// RESTART
+restartBtn.onclick = () => {
+  if (!player) return;
+  player.stop();
+  setTimeout(() => player.start(), 100);
+};
+
+// SERENDIPITY
+serendipityBtn.onclick = () => {
+  const sliders = ['fog', 'weight', 'distance', 'air', 'drift', 'bloom'];
+  sliders.forEach(id => {
+    const el = document.getElementById(id);
+    const randomVal = (Math.random() * (parseFloat(el.max) - parseFloat(el.min)) + parseFloat(el.min)).toFixed(2);
+    el.value = randomVal;
+    el.dispatchEvent(new Event('input'));
+  });
+};
+
+// SLIDERS
+document.getElementById('fog').oninput = e => reverb.wet.value = e.target.value;
+
+document.getElementById('weight').oninput = e => { 
+  if(!player) return;
+  const val = parseFloat(e.target.value);
+  player.detune = val * 100;
+  player.volume.value = val < 0 ? val * 0.5 : 0;
+};
+
+document.getElementById('distance').oninput = e => lowpass.frequency.value = e.target.value;
+document.getElementById('air').oninput = e => highpass.frequency.value = e.target.value;
+
+document.getElementById('drift').oninput = e => {
+  if (!player) return;
+  const d = parseFloat(e.target.value);
+  player.grainSize = 0.05 + d * 0.5;
+  player.playbackRate = 1 - (d * 0.2);
+  driftLFO.frequency.value = d * 0.5;
+  driftLFO.amplitude.value = d; 
+};
+
+document.getElementById('bloom').oninput = e => {
+  if (!harmony1) return;
+  const val = parseFloat(e.target.value);
+  harmony1.wet.value = val;
+  harmony2.wet.value = val * 0.6;
+  widener.width.value = 0.5 + (val * 0.5);
+};
+
+// CAPTURE
+captureBtn.onclick = () => {
+  if (!player) return alert("Load sound first");
+
+  const dest = Tone.context.createMediaStreamDestination();
+  Tone.Destination.connect(dest);
+  const recorder = new MediaRecorder(dest.stream);
+  let chunks = [];
+
+  recorder.ondataavailable = e => chunks.push(e.data);
+  recorder.onstop = () => {
+    statusText.innerText = "Finalizing texture...";
+    const blob = new Blob(chunks, { type: 'audio/wav' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+
+    const now = new Date();
+    const timestamp = now.getFullYear() +
+      String(now.getMonth() + 1).padStart(2, '0') +
+      String(now.getDate()).padStart(2, '0') +
+      String(now.getHours()).padStart(2, '0') +
+      String(now.getMinutes()).padStart(2, '0');
+    
+    a.download = `Lumera_Texture_${timestamp}.wav`;
+    
+    a.click();
+
+    captureBtn.innerText = "Capture";
+    captureBtn.disabled = false;
+    statusText.innerText = "Ready";
+    Tone.Destination.volume.value = 0;
+  };
+
+  recorder.start();
+  captureBtn.disabled = true;
+  
+  let time = 60;
+  const interval = setInterval(() => {
+    time--;
+    captureBtn.innerText = `Recording (${time}s)`;
+    if (time <= 3) Tone.Destination.volume.rampTo(-Infinity, 3);
+    if (time <= 0) {
+      clearInterval(interval);
+      recorder.stop();
+    }
+  }, 1000);
+};
+</script>
+
+</body>
+</html>
