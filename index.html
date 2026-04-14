@@ -337,7 +337,17 @@ captureBtn.onclick = () => {
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `texture_${new Date().getTime()}.wav`;
+
+    // GENERATE FILENAME: Lumera_Texture_YYYYMMDDHHMM
+    const now = new Date();
+    const timestamp = now.getFullYear() +
+      String(now.getMonth() + 1).padStart(2, '0') +
+      String(now.getDate()).padStart(2, '0') +
+      String(now.getHours()).padStart(2, '0') +
+      String(now.getMinutes()).padStart(2, '0');
+    
+    a.download = `Lumera_Texture_${timestamp}.wav`;
+    
     a.click();
 
     captureBtn.innerText = "Capture";
@@ -363,4 +373,5 @@ captureBtn.onclick = () => {
 </script>
 
 </body>
+</html>
 </html>
